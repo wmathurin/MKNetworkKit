@@ -4,3 +4,6 @@
 [submodule "MKNetworkKit-Tests/External/OHHTTPStubs"]
 	path = MKNetworkKit-Tests/External/OHHTTPStubs
 	url = https://github.com/AliSoftware/OHHTTPStubs.git
+[submodule "external/ThirdPartyDependencies"]
+	path = external/ThirdPartyDependencies
+	url = https://github.com/forcedotcom/SalesforceMobileSDK-iOS-Dependencies.git
