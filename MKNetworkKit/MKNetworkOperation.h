@@ -424,6 +424,13 @@ typedef enum {
 -(void) addHeaders:(NSDictionary*) headersDictionary;
 
 /*!
+ * Set headers.
+ * The difference between addHeaders and setHeaders is that setHeaders is using request setValue forHttpHeaderValue instead
+ * of addValue
+ */
+-(void) setHeaders:(NSDictionary*) headersDictionary;
+
+/*!
  *  @abstract Set a header, overwriting any value already set.
  *
  *  @discussion addHeader will append the value to any header already set.  If you want to overwrite
