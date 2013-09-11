@@ -1797,18 +1797,18 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 #pragma mark Salesforce 
 
 ///** Added by Salesforce for customization*/
-//-(void) setHeaders:(NSDictionary*) headersDictionary {
-//    [headersDictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-//        [self.request setValue:obj forHTTPHeaderField:key];
-//    }];
-//}
-//
-//- (void)setHeaderValue:(NSString *)value forKey:(NSString *)key {
-//    if (nil == value) {
-//        return;
-//    }
-//    [self.request setValue:value forHTTPHeaderField:key];
-//}
+-(void) setHeaders:(NSDictionary*) headersDictionary {
+    [headersDictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        [self.request setValue:obj forHTTPHeaderField:key];
+    }];
+}
+
+- (void)setHeaderValue:(NSString *)value forKey:(NSString *)key {
+    if (nil == value) {
+        return;
+    }
+    [self.request setValue:value forHTTPHeaderField:key];
+}
 
 -(void) setHeader:(NSString*)key withValue:(NSString*)value {
   if (nil == value) {
