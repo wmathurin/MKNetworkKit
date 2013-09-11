@@ -40,11 +40,16 @@
 #error MKNetworkKit is ARC only. Either turn on ARC for the project or use -fobjc-arc flag
 #endif
 
+#pragma mark Salesforce ↘
+#define kMKNetworkEngineMaxWifiConnections 6
+#define kMKNetworkEngineMaxWWANConnections 2
+#pragma mark Salesforce ↖
+
 @interface MKNetworkEngine (/*Private Methods*/)
 
-@property (copy, nonatomic) NSString *hostName;
+@property (strong, nonatomic) NSString *hostName;
 @property (strong, nonatomic) Reachability *reachability;
-@property (copy, nonatomic) NSDictionary *customHeaders;
+@property (strong, nonatomic) NSDictionary *customHeaders;
 @property (assign, nonatomic) Class customOperationSubclass;
 
 @property (nonatomic, strong) NSMutableDictionary *memoryCache;
@@ -58,12 +63,30 @@
 @property (assign, nonatomic) dispatch_queue_t backgroundCacheQueue;
 @property (assign, nonatomic) dispatch_queue_t operationQueue;
 #endif
+-(void) saveCache;
+-(void) saveCacheData:(NSData*) data forKey:(NSString*) cacheDataKey;
 
+-(void) freezeOperations;
+-(void) checkAndRestoreFrozenOperations;
+
+-(BOOL) isCacheEnabled;
 @end
 
 static NSOperationQueue *_sharedNetworkQueue;
 
 @implementation MKNetworkEngine
+@synthesize hostName = _hostName;
+@synthesize reachability = _reachability;
+@synthesize customHeaders = _customHeaders;
+@synthesize customOperationSubclass = _customOperationSubclass;
+
+@synthesize memoryCache = _memoryCache;
+@synthesize memoryCacheKeys = _memoryCacheKeys;
+@synthesize cacheInvalidationParams = _cacheInvalidationParams;
+
+@synthesize reachabilityChangedHandler = _reachabilityChangedHandler;
+@synthesize portNumber = _portNumber;
+@synthesize apiPath = _apiPath;
 
 // Network Queue is a shared singleton object.
 // no matter how many instances of MKNetworkEngine is created, there is one and only one network queue
@@ -73,30 +96,26 @@ static NSOperationQueue *_sharedNetworkQueue;
 #pragma mark Initialization
 
 +(void) initialize {
-  
   if(!_sharedNetworkQueue) {
     static dispatch_once_t oncePredicate;
     dispatch_once(&oncePredicate, ^{
       _sharedNetworkQueue = [[NSOperationQueue alloc] init];
       [_sharedNetworkQueue addObserver:[self self] forKeyPath:@"operationCount" options:0 context:NULL];
-      [_sharedNetworkQueue setMaxConcurrentOperationCount:6];
-      
+      // Salesforce
+      [_sharedNetworkQueue setMaxConcurrentOperationCount:kMKNetworkEngineMaxWifiConnections];
     });
   }
 }
 
 - (id) init {
-  
   return [self initWithHostName:nil];
 }
 
 - (id) initWithHostName:(NSString*) hostName {
-  
   return [self initWithHostName:hostName apiPath:nil customHeaderFields:nil];
 }
 
 - (id) initWithHostName:(NSString*) hostName apiPath:(NSString*) apiPath customHeaderFields:(NSDictionary*) headers {
-  
   return [self initWithHostName:hostName portNumber:0 apiPath:apiPath customHeaderFields:headers];
 }
 
@@ -143,7 +162,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 - (id) initWithHostName:(NSString*) hostName customHeaderFields:(NSDictionary*) headers {
-  
   return [self initWithHostName:hostName apiPath:nil customHeaderFields:headers];
 }
 
@@ -151,7 +169,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 #pragma mark Memory Mangement
 
 -(void) dealloc {
-  
 #if TARGET_OS_IPHONE
 #if __IPHONE_OS_VERSION_MIN_REQUIRED < 60000
   dispatch_release(_backgroundCacheQueue);
@@ -177,6 +194,10 @@ static NSOperationQueue *_sharedNetworkQueue;
   [[NSNotificationCenter defaultCenter] removeObserver:self name:NSApplicationWillTerminateNotification object:nil];
 #endif
 
+}
+
++(void) dealloc {
+  [_sharedNetworkQueue removeObserver:[self self] forKeyPath:@"operationCount"];
 }
 
 #pragma mark -
@@ -208,8 +229,8 @@ static NSOperationQueue *_sharedNetworkQueue;
   if([self.reachability currentReachabilityStatus] == ReachableViaWiFi)
   {
     DLog(@"Server [%@] is reachable via Wifi", self.hostName);
-    [_sharedNetworkQueue setMaxConcurrentOperationCount:6];
-    
+    // Salesforce
+    [_sharedNetworkQueue setMaxConcurrentOperationCount:kMKNetworkEngineMaxWifiConnections];
     [self checkAndRestoreFrozenOperations];
   }
   else if([self.reachability currentReachabilityStatus] == ReachableViaWWAN)
@@ -220,7 +241,8 @@ static NSOperationQueue *_sharedNetworkQueue;
       [_sharedNetworkQueue setMaxConcurrentOperationCount:0];
     } else {
       DLog(@"Server [%@] is reachable only via cellular data", self.hostName);
-      [_sharedNetworkQueue setMaxConcurrentOperationCount:2];
+      // Salesforce
+      [_sharedNetworkQueue setMaxConcurrentOperationCount:kMKNetworkEngineMaxWWANConnections];
       [self checkAndRestoreFrozenOperations];
     }
   }
@@ -237,7 +259,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 
 #pragma mark Freezing operations (Called when network connectivity fails)
 -(void) freezeOperations {
-  
   if(![self isCacheEnabled]) return;
   
   for(MKNetworkOperation *operation in _sharedNetworkQueue.operations) {
@@ -258,7 +279,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 +(void) cancelOperationsContainingURLString:(NSString*) string {
-  
   [self cancelOperationsMatchingBlock:^BOOL (MKNetworkOperation* op) {
     return [[op.readonlyRequest.URL absoluteString] rangeOfString:string].location != NSNotFound;
   }];
@@ -276,7 +296,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(void) cancelAllOperations {
-
   if(self.hostName) {
     [MKNetworkEngine cancelOperationsContainingURLString:self.hostName];
   } else {
@@ -285,7 +304,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(void) checkAndRestoreFrozenOperations {
-  
   if(![self isCacheEnabled]) return;
   
   NSError *error = nil;
@@ -312,12 +330,10 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(NSString*) readonlyHostName {
-  
   return [_hostName copy];
 }
 
 -(BOOL) isReachable {
-  
   return ([self.reachability currentReachabilityStatus] != NotReachable);
 }
 
@@ -325,35 +341,30 @@ static NSOperationQueue *_sharedNetworkQueue;
 #pragma mark Create methods
 
 -(void) registerOperationSubclass:(Class) aClass {
-  
   self.customOperationSubclass = aClass;
 }
 
 -(MKNetworkOperation*) operationWithPath:(NSString*) path {
-  
   return [self operationWithPath:path params:nil];
 }
 
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                                  params:(NSDictionary*) body {
-  
+                                  params:(NSMutableDictionary*) body {
   return [self operationWithPath:path
                           params:body
                       httpMethod:@"GET"];
 }
 
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                                  params:(NSDictionary*) body
+                                  params:(NSMutableDictionary*) body
                               httpMethod:(NSString*)method  {
-  
   return [self operationWithPath:path params:body httpMethod:method ssl:NO];
 }
 
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                                  params:(NSDictionary*) body
+                                  params:(NSMutableDictionary*) body
                               httpMethod:(NSString*)method
                                      ssl:(BOOL) useSSL {
-  
   if(self.hostName == nil) {
     
     DLog(@"Hostname is nil, use operationWithURLString: method to create absolute URL operations");
@@ -381,35 +392,30 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(MKNetworkOperation*) operationWithURLString:(NSString*) urlString {
-  
   return [self operationWithURLString:urlString params:nil httpMethod:@"GET"];
 }
 
 -(MKNetworkOperation*) operationWithURLString:(NSString*) urlString
-                                       params:(NSDictionary*) body {
-  
+                                       params:(NSMutableDictionary*) body {
   return [self operationWithURLString:urlString params:body httpMethod:@"GET"];
 }
 
 
 -(MKNetworkOperation*) operationWithURLString:(NSString*) urlString
-                                       params:(NSDictionary*) body
+                                       params:(NSMutableDictionary*) body
                                    httpMethod:(NSString*)method {
-  
-  MKNetworkOperation *operation = [[self.customOperationSubclass alloc] initWithURLString:urlString params:body httpMethod:method];
+    // Salesforce
+    __autoreleasing MKNetworkOperation *operation = [[self.customOperationSubclass alloc] initWithURLString:urlString params:body httpMethod:method];
   operation.shouldSendAcceptLanguageHeader = self.shouldSendAcceptLanguageHeader;
-  
   [self prepareHeaders:operation];
   return operation;
 }
 
 -(void) prepareHeaders:(MKNetworkOperation*) operation {
-  
   [operation addHeaders:self.customHeaders];
 }
 
 -(NSData*) cachedDataForOperation:(MKNetworkOperation*) operation {
-  
   NSData *cachedData = (self.memoryCache)[[operation uniqueIdentifier]];
   if(cachedData) return cachedData;
   
@@ -426,21 +432,15 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(void) enqueueOperation:(MKNetworkOperation*) operation {
-  
   [self enqueueOperation:operation forceReload:NO];
 }
 
 -(void) enqueueOperation:(MKNetworkOperation*) operation forceReload:(BOOL) forceReload {
-  
   NSParameterAssert(operation != nil);
   if(operation == nil) return;
   
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-    
-    
      __weak id weakSelf = self;
-    
-    
     [operation setCacheHandler:^(MKNetworkOperation* completedCacheableOperation) {
       
       // if this is not called, the request would have been a non cacheable request
@@ -486,9 +486,15 @@ static NSOperationQueue *_sharedNetworkQueue;
       }
       
       dispatch_sync(self.operationQueue, ^{
-        
+        NSUInteger index = NSNotFound;
         NSArray *operations = _sharedNetworkQueue.operations;
-        NSUInteger index = [operations indexOfObject:operation];
+        // {
+        // Modified by Salesforce to only check for dup request for GET method
+        if ([operation isCacheable]) {
+            index = [operations indexOfObject:operation];
+        }
+        // }
+        // index = [operations indexOfObject:operation];
         BOOL operationFinished = NO;
         if(index != NSNotFound) {
           
@@ -517,7 +523,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 - (MKNetworkOperation*)imageAtURL:(NSURL *)url completionHandler:(MKNKImageBlock) imageFetchedBlock errorHandler:(MKNKResponseErrorBlock) errorBlock {
- 
 #ifdef DEBUG
   // I could enable caching here, but that hits performance and inturn affects table view scrolling
   // if imageAtURL is called for loading thumbnails.
@@ -551,7 +556,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 #if TARGET_OS_IPHONE
 
 - (MKNetworkOperation*)imageAtURL:(NSURL *)url size:(CGSize) size completionHandler:(MKNKImageBlock) imageFetchedBlock errorHandler:(MKNKResponseErrorBlock) errorBlock {
-    
 #ifdef DEBUG
   // I could enable caching here, but that hits performance and inturn affects table view scrolling
   // if imageAtURL is called for loading thumbnails.
@@ -585,7 +589,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 - (MKNetworkOperation*)imageAtURL:(NSURL *)url size:(CGSize) size onCompletion:(MKNKImageBlock) imageFetchedBlock {
-  
   return [self imageAtURL:url size:size completionHandler:imageFetchedBlock errorHandler:^(MKNetworkOperation* op, NSError* error){}];
 }
 
@@ -601,7 +604,6 @@ static NSOperationQueue *_sharedNetworkQueue;
 #pragma mark Cache related
 
 -(NSString*) cacheDirectoryName {
-  
   static NSString *cacheDirectoryName = nil;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
@@ -614,12 +616,10 @@ static NSOperationQueue *_sharedNetworkQueue;
 }
 
 -(int) cacheMemoryCost {
-  
   return MKNETWORKCACHE_DEFAULT_COST;
 }
 
 -(void) saveCache {
-  
   for(NSString *cacheKey in [self.memoryCache allKeys])
   {
     NSString *filePath = [[self cacheDirectoryName] stringByAppendingPathComponent:cacheKey];
@@ -682,14 +682,12 @@ static NSOperationQueue *_sharedNetworkQueue;
  }*/
 
 -(BOOL) isCacheEnabled {
-  
   BOOL isDir = NO;
   BOOL isCachingEnabled = [[NSFileManager defaultManager] fileExistsAtPath:[self cacheDirectoryName] isDirectory:&isDir];
   return isCachingEnabled;
 }
 
 -(void) useCache {
-  
   self.memoryCache = [NSMutableDictionary dictionaryWithCapacity:[self cacheMemoryCost]];
   self.memoryCacheKeys = [NSMutableArray arrayWithCapacity:[self cacheMemoryCost]];
   self.cacheInvalidationParams = [NSMutableDictionary dictionary];
@@ -725,7 +723,6 @@ static NSOperationQueue *_sharedNetworkQueue;
                                              object:nil];
   
 #elif TARGET_OS_MAC
-  
   [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveCache)
                                                name:NSApplicationWillHideNotification
                                              object:nil];
@@ -735,14 +732,10 @@ static NSOperationQueue *_sharedNetworkQueue;
   [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveCache)
                                                name:NSApplicationWillTerminateNotification
                                              object:nil];
-  
 #endif
-  
-  
 }
 
 -(void) emptyCache {
-  
   [self saveCache]; // ensures that invalidation params are written to disk properly
   NSError *error = nil;
   NSArray *directoryContents = [[NSFileManager defaultManager]
@@ -761,6 +754,43 @@ static NSOperationQueue *_sharedNetworkQueue;
   NSString *cacheInvalidationPlistFilePath = [[self cacheDirectoryName] stringByAppendingPathExtension:@"plist"];
   [[NSFileManager defaultManager] removeItemAtPath:cacheInvalidationPlistFilePath error:&error];
   if(error) DLog(@"%@", error);
+}
+
+#pragma mark Salesforce
+
+-(void) updateCustomHeaders:(NSDictionary *)headers {
+  self.customHeaders = headers;
+}
+
+#pragma mark - Operation Methods
+/*
+ * Provided by MKNetworkEngine
+- (void)cancellAllOperations {
+    if (_sharedNetworkQueue) {
+        [_sharedNetworkQueue cancelAllOperations];
+    }
+}
+*/
+- (void)suspendAllOperations {
+    if (_sharedNetworkQueue) {
+        if (![_sharedNetworkQueue isSuspended]) {
+            [_sharedNetworkQueue setSuspended:YES];
+        }
+    }
+}
+- (void)resumeAllOperations {
+    if (_sharedNetworkQueue) {
+        if ([_sharedNetworkQueue isSuspended]) {
+            [_sharedNetworkQueue setSuspended:NO];
+        }
+    }
+}
+
+- (NSArray *)operations {
+    if (_sharedNetworkQueue) {
+        return [_sharedNetworkQueue operations];
+    }
+    return nil;
 }
 
 @end

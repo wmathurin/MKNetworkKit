@@ -87,11 +87,12 @@
 #define kMKNetworkKitDefaultImageHeadRequestDuration 3600*24*1 // 1 day (HEAD requests with eTag are sent only after expiry of this. Not that these are not RFC compliant, but needed for performance tuning)
 #define kMKNetworkKitDefaultImageCacheDuration 3600*24*7 // 1 day
 
-// if your server takes longer than 30 seconds to provide real data,
-// you should hire a better server developer.
-// on iOS (or any mobile device), 30 seconds is already considered high.
+#pragma mark Salesforce ↘
 
-#define kMKNetworkKitRequestTimeOutInSeconds 30
+// Slower production server, make it 3 minutes instead
+#define kMKNetworkKitRequestTimeOutInSeconds 60 * 3
+
+#pragma mark Salesforce ↖
 #endif
 
 

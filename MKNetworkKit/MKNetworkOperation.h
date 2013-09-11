@@ -166,6 +166,48 @@ typedef enum {
  */
 @property (nonatomic, assign) MKNKPostDataEncodingType postDataEncoding;
 
+#pragma mark Salesforce ↘
+
+/*!
+ * Expected content size for downloaded file in the event that server does not send a content-length header.
+ */
+@property (assign) long long expectedContentSize;
+
+/**Added by Salesforce to support custom tag*/
+@property (nonatomic, strong) NSString *tag;
+
+/**Added by Salesforce to support custom timeout*/
+@property (nonatomic, assign) NSUInteger timeout;
+
+/**Added by Salesforce to support download encrypt*/
+@property (nonatomic, assign) BOOL encryptDownload;
+
+/**Added by Salesforce to support download to a specific file*/
+@property (nonatomic, strong) NSString *downloadFile;
+
+/**Added by Salesforce to support custom cache policy */
+@property (nonatomic, assign) NSURLRequestCachePolicy cachePolicy;
+
+/**Added by Salesforce to support access token requirement*/
+@property (nonatomic, assign) BOOL requiresAccessToken;
+
+/**Moved by Salesforce to public accessor*/
+@property (nonatomic, strong) NSMutableArray *errorBlocks;
+@property (nonatomic, strong) NSMutableArray *errorBlocksType2;
+@property (strong, nonatomic) NSMutableDictionary *fieldsToBePosted;
+@property (strong, nonatomic) NSMutableArray *filesToBePosted;
+@property (strong, nonatomic) NSMutableArray *dataToBePosted;
+@property (nonatomic, strong) NSMutableArray *responseBlocks;
+@property (nonatomic, strong) NSMutableArray *uploadProgressChangedHandlers;
+@property (nonatomic, strong) NSMutableArray *downloadProgressChangedHandlers;
+@property (nonatomic, copy) MKNKEncodingBlock postDataEncodingHandler;
+
+
+/** Added by Salesforce to support custom HTTP Pipeling setting */
+@property (nonatomic, assign) BOOL enableHttpPipelining;
+
+#pragma mark Salesforce ↖
+
 /*!
  *  @abstract Set a customized Post Data Encoding Handler for a given HTTP Content Type
  *  
@@ -528,6 +570,19 @@ typedef enum {
  */
 -(void) addDownloadStream:(NSOutputStream*) outputStream;
 
+#pragma mark Salesforce ↘
+
+/*!
+ *  @abstract Downloads a resource directly to a file with encryption turned on
+ *  
+ *  @discussion
+ *	This method can be used to download a resource directly to a encrypted file
+ *
+ */
+-(void) setDownloadFile:(NSString *) outputFile;
+
+#pragma mark Salesforce ↖
+
 /*!
  *  @abstract Helper method to check if the response is from cache
  *  
@@ -570,6 +625,18 @@ typedef enum {
  *
  */
 -(NSString*) curlCommandLineString;
+
+
+#pragma mark Salesforce ↘
+
+/*!
+  * Added short description by Salesforce
+  *
+  * Short description is  similar to curlCommandLineString, but without the request header and does contain curl syntax
+  */
+-(NSString*) shortDescription;
+
+#pragma mark Salesforce ↖
 
 /*!
  *  @abstract Helper method to retrieve the contents as a NSString encoded using a specific string encoding
@@ -687,6 +754,16 @@ typedef enum {
 -(NSString*) uniqueIdentifier;
 
 - (id)initWithURLString:(NSString *)aURLString
-                 params:(NSDictionary *)params
+                 params:(NSMutableDictionary *)params
              httpMethod:(NSString *)method;
+
+#pragma mark Salesforce ↘
+
+/*!
+ * Customization by Salesforce to support lcoal testing
+ */
+-(void)setLocalTestData:(NSData*)localData;
+
+#pragma mark Salesforce ↖
+
 @end

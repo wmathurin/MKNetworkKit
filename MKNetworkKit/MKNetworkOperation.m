@@ -26,6 +26,12 @@
 #import "MKNetworkKit.h"
 
 #import <ImageIO/ImageIO.h>
+// Always define as it includes Salesforce specific changes
+#define SALESFORCE 1
+
+#pragma mark Salesforce ↘
+#define MKNetworkKitDataTruncation 500
+#pragma mark Salesforce ↖
 
 #ifdef __OBJC_GC__
 #error MKNetworkKit does not support Objective-C Garbage Collection
@@ -46,22 +52,25 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
                                  SecTrustRef *outTrust,
                                  CFStringRef keyPassword);
 
-@interface MKNetworkOperation (/*Private Methods*/)
+@interface MKNetworkOperation (/*Private Methods*/) {
+    // Salesforce: added to support inline data encryption when data is downloaded
+    SFCrypto *_cipher;
+}
 @property (strong, nonatomic) NSURLConnection *connection;
-@property (copy, nonatomic) NSString *uniqueId;
+@property (strong, nonatomic) NSString *uniqueId;
 @property (strong, nonatomic) NSMutableURLRequest *request;
 @property (strong, nonatomic) NSHTTPURLResponse *response;
 
-@property (strong, nonatomic) NSMutableDictionary *fieldsToBePosted;
-@property (strong, nonatomic) NSMutableArray *filesToBePosted;
-@property (strong, nonatomic) NSMutableArray *dataToBePosted;
+//@property (strong, nonatomic) NSMutableDictionary *fieldsToBePosted;
+//@property (strong, nonatomic) NSMutableArray *filesToBePosted;
+//@property (strong, nonatomic) NSMutableArray *dataToBePosted;
 
-@property (copy, nonatomic) NSString *username;
-@property (copy, nonatomic) NSString *password;
+@property (strong, nonatomic) NSString *username;
+@property (strong, nonatomic) NSString *password;
 
-@property (nonatomic, strong) NSMutableArray *responseBlocks;
-@property (nonatomic, strong) NSMutableArray *errorBlocks;
-@property (nonatomic, strong) NSMutableArray *errorBlocksType2;
+//@property (nonatomic, strong) NSMutableArray *responseBlocks;
+//@property (nonatomic, strong) NSMutableArray *errorBlocks;
+//@property (nonatomic, strong) NSMutableArray *errorBlocksType2;
 
 @property (nonatomic, assign) MKNetworkOperationState state;
 @property (nonatomic, assign) BOOL isCancelled;
@@ -71,17 +80,22 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 
 @property (nonatomic, strong) NSMutableArray *notModifiedHandlers;
 
-@property (nonatomic, strong) NSMutableArray *uploadProgressChangedHandlers;
-@property (nonatomic, strong) NSMutableArray *downloadProgressChangedHandlers;
-@property (nonatomic, copy) MKNKEncodingBlock postDataEncodingHandler;
+//@property (nonatomic, strong) NSMutableArray *uploadProgressChangedHandlers;
+//@property (nonatomic, strong) NSMutableArray *downloadProgressChangedHandlers;
+//@property (nonatomic, copy) MKNKEncodingBlock postDataEncodingHandler;
 
 @property (nonatomic, assign) NSInteger startPosition;
 
 @property (nonatomic, strong) NSMutableArray *downloadStreams;
-@property (nonatomic, copy) NSData *cachedResponse;
+@property (nonatomic, strong) NSData *cachedResponse;
 @property (nonatomic, copy) MKNKResponseBlock cacheHandlingBlock;
 
 @property (nonatomic, assign) SecTrustRef serverTrust;
+
+#pragma mark Salesforce ↘
+/**Added by Salesforce to support read from local test data*/
+@property (nonatomic, assign) BOOL readFromLocalData;
+#pragma mark Salesforce ↖
 
 #if TARGET_OS_IPHONE
 @property (nonatomic, assign) UIBackgroundTaskIdentifier backgroundTaskId;
@@ -90,7 +104,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 @property (strong, nonatomic) NSError *error;
 
 - (id)initWithURLString:(NSString *)aURLString
-                 params:(NSDictionary *)body
+                 params:(NSMutableDictionary *)body
              httpMethod:(NSString *)method;
 
 -(NSData*) bodyData;
@@ -99,11 +113,79 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 - (void) showLocalNotification;
 - (void) endBackgroundTask;
 
+#pragma mark Salesforce ↘
+- (long long) contentLength;
+
+// Added by Salesforce to support inline data encryption when data is downloaded
+- (SFCrypto *)cipher;
+- (void)clearRequestData;
+
+#pragma mark Salesforce ↖
+
 @end
 
 @implementation MKNetworkOperation
+@synthesize postDataEncodingHandler = _postDataEncodingHandler;
 
+@synthesize stringEncoding = _stringEncoding;
 @dynamic freezable;
+@synthesize uniqueId = _uniqueId; // freezable operations have a unique id
+
+@synthesize connection = _connection;
+
+@synthesize request = _request;
+@synthesize response = _response;
+
+@synthesize fieldsToBePosted = _fieldsToBePosted;
+@synthesize filesToBePosted = _filesToBePosted;
+@synthesize dataToBePosted = _dataToBePosted;
+
+@synthesize username = _username;
+@synthesize password = _password;
+@synthesize clientCertificate = _clientCertificate;
+@synthesize authHandler = _authHandler;
+@synthesize operationStateChangedHandler = _operationStateChangedHandler;
+
+@synthesize responseBlocks = _responseBlocks;
+@synthesize errorBlocks = _errorBlocks;
+
+@synthesize isCancelled = _isCancelled;
+@synthesize mutableData = _mutableData;
+@synthesize downloadedDataSize = _downloadedDataSize;
+
+@synthesize uploadProgressChangedHandlers = _uploadProgressChangedHandlers;
+@synthesize downloadProgressChangedHandlers = _downloadProgressChangedHandlers;
+
+@synthesize downloadStreams = _downloadStreams;
+
+
+@synthesize cachedResponse = _cachedResponse;
+@synthesize cacheHandlingBlock = _cacheHandlingBlock;
+@synthesize credentialPersistence = _credentialPersistence;
+
+@synthesize startPosition = _startPosition;
+
+#if TARGET_OS_IPHONE
+@synthesize backgroundTaskId = _backgroundTaskId;
+@synthesize localNotification = localNotification_;
+@synthesize shouldShowLocalNotificationOnError = shouldShowLocalNotificationOnError_;
+#endif
+
+@synthesize cacheHeaders = _cacheHeaders;
+@synthesize error = _error;
+
+#pragma mark Salesforce ↘
+// Added by Salesforce
+@synthesize expectedContentSize;
+@synthesize tag = _tag;
+@synthesize timeout = _timeout;
+@synthesize encryptDownload = _encryptDownload;
+@synthesize downloadFile = _downloadFile;
+@synthesize cachePolicy = _cachePolicy;
+@synthesize requiresAccessToken = _requiresAccessToken;
+@synthesize enableHttpPipelining = _enableHttpPipelining;
+@synthesize readFromLocalData = _readFromLocalData;
+#pragma mark Salesforce ↖
 
 // A RESTful service should always return the same response for a given URL and it's parameters.
 // this means if these values are correct, you can cache the responses
@@ -111,7 +193,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 // even if URL and others are same, POST, DELETE, PUT methods should not be cached and should not be treated equal.
 
 -(BOOL) isCacheable {
-  
   if(self.shouldNotCacheResponse) return NO;
   if(self.username != nil) return NO;
   if(self.password != nil) return NO;
@@ -148,39 +229,50 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 {
   return _postDataEncoding;
 }
-- (void)setPostDataEncoding:(MKNKPostDataEncodingType)aPostDataEncoding
-{
-  _postDataEncoding = aPostDataEncoding;
-  
-  NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
-  
-  switch (self.postDataEncoding) {
-      
-    case MKNKPostDataEncodingTypeURL: {
-      [self.request setValue:
-       [NSString stringWithFormat:@"application/x-www-form-urlencoded; charset=%@", charset]
-          forHTTPHeaderField:@"Content-Type"];
+
+- (void)setPostDataEncoding:(MKNKPostDataEncodingType)aPostDataEncoding {
+    if (_postDataEncoding != aPostDataEncoding) {
+        [self willChangeValueForKey:@"postDataEncoding"];
+        _postDataEncoding = aPostDataEncoding;
+        
+        NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
+        
+        switch (self.postDataEncoding) {
+                
+            case MKNKPostDataEncodingTypeURL: {
+                [self.request setValue:
+                 [NSString stringWithFormat:@"application/x-www-form-urlencoded; charset=%@", charset]
+                    forHTTPHeaderField:@"Content-Type"];
+            }
+                break;
+            case MKNKPostDataEncodingTypeJSON: {
+                if(NSClassFromString(@"NSJSONSerialization")) {
+                    [self.request setValue:
+                     [NSString stringWithFormat:@"application/json; charset=%@", charset]
+                        forHTTPHeaderField:@"Content-Type"];
+                }
+                else {
+                    [self.request setValue:
+                     [NSString stringWithFormat:@"application/x-www-form-urlencoded; charset=%@", charset]
+                        forHTTPHeaderField:@"Content-Type"];
+                    
+                }
+            }
+                break;
+            case MKNKPostDataEncodingTypePlist: {
+                [self.request setValue:
+                 [NSString stringWithFormat:@"application/x-plist; charset=%@", charset]
+                    forHTTPHeaderField:@"Content-Type"];
+            }
+                
+            default:
+                break;
+        }
+        [self didChangeValueForKey:@"postDataEncoding"];
     }
-      break;
-    case MKNKPostDataEncodingTypeJSON: {
-      [self.request setValue:
-       [NSString stringWithFormat:@"application/json; charset=%@", charset]
-          forHTTPHeaderField:@"Content-Type"];
-    }
-      break;
-    case MKNKPostDataEncodingTypePlist: {
-      [self.request setValue:
-       [NSString stringWithFormat:@"application/x-plist; charset=%@", charset]
-          forHTTPHeaderField:@"Content-Type"];
-    }
-      
-    default:
-      break;
-  }
 }
 
 -(NSString*) encodedPostDataString {
-  
   NSString *returnValue = @"";
   if(self.postDataEncodingHandler)
     returnValue = self.postDataEncodingHandler(self.fieldsToBePosted);
@@ -194,7 +286,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) setCustomPostDataEncodingHandler:(MKNKEncodingBlock) postDataEncodingHandler forType:(NSString*) contentType {
-  
   NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
   self.postDataEncoding = MKNKPostDataEncodingTypeCustom;
   self.postDataEncodingHandler = postDataEncodingHandler;
@@ -211,32 +302,26 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(NSString*) url {
-  
   return [[self.request URL] absoluteString];
 }
 
 -(NSURLRequest*) readonlyRequest {
-  
   return [self.request copy];
 }
 
 -(NSHTTPURLResponse*) readonlyResponse {
-  
   return [self.response copy];
 }
 
 - (NSDictionary *) readonlyPostDictionary {
-  
   return [self.fieldsToBePosted copy];
 }
 
 -(NSString*) HTTPMethod {
-  
   return self.request.HTTPMethod;
 }
 
 -(NSInteger) HTTPStatusCode {
-  
   if(self.response)
     return self.response.statusCode;
   else
@@ -274,7 +359,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(NSString*) uniqueIdentifier {
-  
   NSMutableString *str = [NSMutableString stringWithFormat:@"%@ %@", self.request.HTTPMethod, self.url];
   
   if(self.username || self.password) {
@@ -292,12 +376,10 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(BOOL) isCachedResponse {
-  
   return self.cachedResponse != nil;
 }
 
 -(void) notifyCache {
-  
   if(![self isCacheable]) return;
   if(!([self.response statusCode] >= 200 && [self.response statusCode] < 300)) return;
   
@@ -306,12 +388,10 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(MKNetworkOperationState) state {
-  
   return (MKNetworkOperationState)_state;
 }
 
 -(void) setState:(MKNetworkOperationState)newState {
-  
   switch (newState) {
     case MKNetworkOperationStateReady:
       [self willChangeValueForKey:@"isReady"];
@@ -369,9 +449,12 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   self.state = MKNetworkOperationStateReady;
   [encoder encodeInt32:_state forKey:@"state"];
   [encoder encodeBool:self.isCancelled forKey:@"isCancelled"];
-  [encoder encodeObject:self.mutableData forKey:@"mutableData"];
-  [encoder encodeInteger:(NSInteger)self.downloadedDataSize forKey:@"downloadedDataSize"];
+  // Salesforce: added check
+  if (self.mutableData) [encoder encodeObject:self.mutableData forKey:@"mutableData"];
+  [encoder encodeInteger:self.downloadedDataSize forKey:@"downloadedDataSize"];
   [encoder encodeObject:self.downloadStreams forKey:@"downloadStreams"];
+  // Salesforce:  added by Qingqing to support download file
+  if (nil != self.downloadFile) [encoder encodeObject:self.downloadFile forKey:@"downloadFile"];
   [encoder encodeInteger:self.startPosition forKey:@"startPosition"];
   [encoder encodeInteger:self.credentialPersistence forKey:@"credentialPersistence"];
 }
@@ -401,6 +484,9 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
     self.mutableData = [decoder decodeObjectForKey:@"mutableData"];
     self.downloadedDataSize = [decoder decodeIntegerForKey:@"downloadedDataSize"];
     self.downloadStreams = [decoder decodeObjectForKey:@"downloadStreams"];
+        
+    // Salesforce: added by Qingqing to support download file
+    self.downloadFile = [decoder decodeObjectForKey:@"downloadFile"];
     self.startPosition = [decoder decodeIntegerForKey:@"startPosition"];
     self.credentialPersistence = [decoder decodeIntegerForKey:@"credentialPersistence"];
   }
@@ -410,74 +496,108 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 - (id)copyWithZone:(NSZone *)zone
 {
   MKNetworkOperation *theCopy = [[[self class] allocWithZone:zone] init];  // use designated initializer
-  
-  theCopy.postDataEncoding = _postDataEncoding;
   [theCopy setStringEncoding:self.stringEncoding];
-  [theCopy setUniqueId:[self.uniqueId copy]];
+  theCopy.postDataEncoding = _postDataEncoding;
   
-  [theCopy setConnection:[self.connection copy]];
+  // Salesforce
+  // {
+  if (self.postDataEncodingHandler) {
+    theCopy.postDataEncoding = MKNKPostDataEncodingTypeCustom;
+    theCopy.postDataEncodingHandler = self.postDataEncodingHandler;
+  }
+  // }
+
+//[theCopy setUniqueId:[self.uniqueId copy]];
+//[theCopy setConnection:[self.connection copy]];
   [theCopy setRequest:[self.request copy]];
-  [theCopy setResponse:[self.response copy]];
+//[theCopy setResponse:[self.response copy]];
   [theCopy setFieldsToBePosted:[self.fieldsToBePosted copy]];
   [theCopy setFilesToBePosted:[self.filesToBePosted copy]];
   [theCopy setDataToBePosted:[self.dataToBePosted copy]];
-  [theCopy setUsername:[self.username copy]];
-  [theCopy setPassword:[self.password copy]];
-  [theCopy setClientCertificate:[self.clientCertificate copy]];
-  [theCopy setClientCertificatePassword:[self.clientCertificatePassword copy]];
+//[theCopy setUsername:[self.username copy]];
+//[theCopy setPassword:[self.password copy]];
+//[theCopy setClientCertificate:[self.clientCertificate copy]];
+//[theCopy setClientCertificatePassword:[self.clientCertificatePassword copy]];
   [theCopy setResponseBlocks:[self.responseBlocks copy]];
   [theCopy setErrorBlocks:[self.errorBlocks copy]];
   [theCopy setErrorBlocksType2:[self.errorBlocksType2 copy]];
-  [theCopy setState:self.state];
-  [theCopy setIsCancelled:self.isCancelled];
-  [theCopy setMutableData:[self.mutableData copy]];
-  [theCopy setDownloadedDataSize:self.downloadedDataSize];
+//[theCopy setState:self.state];
+//[theCopy setIsCancelled:self.isCancelled];
+//[theCopy setMutableData:[self.mutableData copy]];
+//[theCopy setDownloadedDataSize:self.downloadedDataSize];
   [theCopy setNotModifiedHandlers:[self.notModifiedHandlers copy]];
   [theCopy setUploadProgressChangedHandlers:[self.uploadProgressChangedHandlers copy]];
   [theCopy setDownloadProgressChangedHandlers:[self.downloadProgressChangedHandlers copy]];
-  [theCopy setDownloadStreams:[self.downloadStreams copy]];
-  [theCopy setCachedResponse:[self.cachedResponse copy]];
+//[theCopy setDownloadStreams:[self.downloadStreams copy]];
+//[theCopy setCachedResponse:[self.cachedResponse copy]];
   [theCopy setCacheHandlingBlock:self.cacheHandlingBlock];
-  [theCopy setStartPosition:self.startPosition];
-  [theCopy setCredentialPersistence:self.credentialPersistence];
+//[theCopy setStartPosition:self.startPosition];
+//[theCopy setCredentialPersistence:self.credentialPersistence];
+
+  // Salesforce
+  // {
+  theCopy.expectedContentSize = self.expectedContentSize;
+  theCopy.timeout = self.timeout;
+  theCopy.tag = self.tag;
+  theCopy.encryptDownload = self.encryptDownload;
+  theCopy.downloadFile = [self.downloadFile copy];
+  theCopy.cachePolicy = self.cachePolicy;
+  theCopy.requiresAccessToken = self.requiresAccessToken;
+  // }
   
   return theCopy;
 }
 
-
 - (id)mutableCopyWithZone:(NSZone *)zone
 {
   MKNetworkOperation *theCopy = [[[self class] allocWithZone:zone] init];  // use designated initializer
-  
-  theCopy.postDataEncoding = _postDataEncoding;
   [theCopy setStringEncoding:self.stringEncoding];
-  [theCopy setUniqueId:[self.uniqueId copy]];
-  
-  [theCopy setConnection:[self.connection mutableCopy]];
+  theCopy.postDataEncoding = _postDataEncoding;
+  // Salesforce
+  // {
+  if (self.postDataEncodingHandler) {
+    theCopy.postDataEncoding = MKNKPostDataEncodingTypeCustom;
+    theCopy.postDataEncodingHandler = self.postDataEncodingHandler;
+  }
+  // }
+
+//[theCopy setUniqueId:[self.uniqueId copy]];
+//[theCopy setConnection:[self.connection mutableCopy]];
   [theCopy setRequest:[self.request mutableCopy]];
-  [theCopy setResponse:[self.response mutableCopy]];
+//[theCopy setResponse:[self.response mutableCopy]];
   [theCopy setFieldsToBePosted:[self.fieldsToBePosted mutableCopy]];
   [theCopy setFilesToBePosted:[self.filesToBePosted mutableCopy]];
   [theCopy setDataToBePosted:[self.dataToBePosted mutableCopy]];
-  [theCopy setUsername:[self.username copy]];
-  [theCopy setPassword:[self.password copy]];
-  [theCopy setClientCertificate:[self.clientCertificate copy]];
-  [theCopy setClientCertificatePassword:[self.clientCertificatePassword copy]];
+//[theCopy setUsername:[self.username copy]];
+//[theCopy setPassword:[self.password copy]];
+//[theCopy setClientCertificate:[self.clientCertificate copy]];
+//[theCopy setClientCertificatePassword:[self.clientCertificatePassword copy]];
   [theCopy setResponseBlocks:[self.responseBlocks mutableCopy]];
   [theCopy setErrorBlocks:[self.errorBlocks mutableCopy]];
   [theCopy setErrorBlocksType2:[self.errorBlocksType2 mutableCopy]];
-  [theCopy setState:self.state];
-  [theCopy setIsCancelled:self.isCancelled];
-  [theCopy setMutableData:[self.mutableData mutableCopy]];
-  [theCopy setDownloadedDataSize:self.downloadedDataSize];
+//[theCopy setState:self.state];
+//[theCopy setIsCancelled:self.isCancelled];
+//[theCopy setMutableData:[self.mutableData mutableCopy]];
+//[theCopy setDownloadedDataSize:self.downloadedDataSize];
   [theCopy setNotModifiedHandlers:[self.notModifiedHandlers mutableCopy]];
   [theCopy setUploadProgressChangedHandlers:[self.uploadProgressChangedHandlers mutableCopy]];
   [theCopy setDownloadProgressChangedHandlers:[self.downloadProgressChangedHandlers mutableCopy]];
-  [theCopy setDownloadStreams:[self.downloadStreams mutableCopy]];
-  [theCopy setCachedResponse:[self.cachedResponse mutableCopy]];
+//[theCopy setDownloadStreams:[self.downloadStreams mutableCopy]];
+//[theCopy setCachedResponse:[self.cachedResponse mutableCopy]];
   [theCopy setCacheHandlingBlock:self.cacheHandlingBlock];
-  [theCopy setStartPosition:self.startPosition];
-  [theCopy setCredentialPersistence:self.credentialPersistence];
+//[theCopy setStartPosition:self.startPosition];
+//[theCopy setCredentialPersistence:self.credentialPersistence];
+
+  // Salesforce
+  // {
+  theCopy.expectedContentSize = self.expectedContentSize;
+  theCopy.timeout = self.timeout;
+  theCopy.tag = self.tag;
+  theCopy.encryptDownload = self.encryptDownload;
+  theCopy.downloadFile = [self.downloadFile mutableCopy];
+  theCopy.cachePolicy = self.cachePolicy;
+  theCopy.requiresAccessToken = self.requiresAccessToken;
+  // }
   
   return theCopy;
 }
@@ -520,30 +640,34 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) dealloc {
-  
+  // Salesforce
+  [self clearRequestData];
   [_connection cancel];
   _connection = nil;
+  // Salesforce
+  _cipher = nil;
 }
 
 -(void) updateHandlersFromOperation:(MKNetworkOperation*) operation {
-  
-  [self.responseBlocks addObjectsFromArray:operation.responseBlocks];
-  [self.errorBlocks addObjectsFromArray:operation.errorBlocks];
-  [self.errorBlocksType2 addObjectsFromArray:operation.errorBlocksType2];
-  [self.notModifiedHandlers addObjectsFromArray:operation.notModifiedHandlers];
-  [self.uploadProgressChangedHandlers addObjectsFromArray:operation.uploadProgressChangedHandlers];
-  [self.downloadProgressChangedHandlers addObjectsFromArray:operation.downloadProgressChangedHandlers];
-  [self.downloadStreams addObjectsFromArray:operation.downloadStreams];
+    if (operation.responseBlocks) {
+        [self.responseBlocks addObjectsFromArray:operation.responseBlocks];
+    }
+    // Salesforce: added check
+    // {
+    if (operation.errorBlocks) [self.errorBlocks addObjectsFromArray:operation.errorBlocks];
+    if (operation.errorBlocksType2) [self.errorBlocksType2 addObjectsFromArray:operation.errorBlocksType2];
+    if (operation.uploadProgressChangedHandlers) [self.uploadProgressChangedHandlers addObjectsFromArray:operation.uploadProgressChangedHandlers];
+    if (operation.downloadProgressChangedHandlers) [self.downloadProgressChangedHandlers addObjectsFromArray:operation.downloadProgressChangedHandlers];
+    if (operation.downloadStreams) [self.downloadStreams addObjectsFromArray:operation.downloadStreams];
+    // }
 }
 
 -(void) setCachedData:(NSData*) cachedData {
-  
   self.cachedResponse = cachedData;
   [self operationSucceeded];
 }
 
 -(void) updateOperationBasedOnPreviousHeaders:(NSMutableDictionary*) headers {
-  
   NSString *lastModified = headers[@"Last-Modified"];
   NSString *eTag = headers[@"ETag"];
   if(lastModified) {
@@ -562,7 +686,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) setUsername:(NSString*) username password:(NSString*) password basicAuth:(BOOL) bYesOrNo {
-  
   [self setUsername:username password:password];
   NSString *base64EncodedString = [[[NSString stringWithFormat:@"%@:%@", self.username, self.password] dataUsingEncoding:NSUTF8StringEncoding] base64EncodedString];
   
@@ -570,13 +693,14 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) onCompletion:(MKNKResponseBlock) response onError:(MKNKErrorBlock) error {
-  
-  [self.responseBlocks addObject:[response copy]];
-  [self.errorBlocks addObject:[error copy]];
+    // Salesforce: add nil checking
+    // {
+    if (response) [self.responseBlocks addObject:[response copy]];
+    if (error) [self.errorBlocks addObject:[error copy]];
+    // }
 }
 
 -(void) addCompletionHandler:(MKNKResponseBlock)response errorHandler:(MKNKResponseErrorBlock)error {
-  
   if(response)
     [self.responseBlocks addObject:[response copy]];
   if(error)
@@ -584,38 +708,30 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) onNotModified:(MKNKVoidBlock)notModifiedBlock {
-  
   [self.notModifiedHandlers addObject:[notModifiedBlock copy]];
 }
 
 -(void) onUploadProgressChanged:(MKNKProgressBlock) uploadProgressBlock {
-  
   [self.uploadProgressChangedHandlers addObject:[uploadProgressBlock copy]];
 }
 
 -(void) onDownloadProgressChanged:(MKNKProgressBlock) downloadProgressBlock {
-  
   [self.downloadProgressChangedHandlers addObject:[downloadProgressBlock copy]];
 }
 
 -(void) setUploadStream:(NSInputStream*) inputStream {
-  
   self.request.HTTPBodyStream = inputStream;
 }
 
 -(void) addDownloadStream:(NSOutputStream*) outputStream {
-  
   [outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
   [self.downloadStreams addObject:outputStream];
 }
 
 - (id)initWithURLString:(NSString *)aURLString
-                 params:(NSDictionary *)params
-             httpMethod:(NSString *)method
-
-{
+                 params:(NSMutableDictionary *)params
+             httpMethod:(NSString *)method {
   if((self = [super init])) {
-    
     self.responseBlocks = [NSMutableArray array];
     self.errorBlocks = [NSMutableArray array];
     self.errorBlocksType2 = [NSMutableArray array];
@@ -632,85 +748,78 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
     
     NSURL *finalURL = nil;
     
-    if(params)
-      self.fieldsToBePosted = [params mutableCopy];
-    
+    if(params) {
+        self.fieldsToBePosted = [params mutableCopy];
+    }
     self.stringEncoding = NSUTF8StringEncoding; // use a delegate to get these values later
     
     if(!method) method = @"GET";
+    if ([method isEqualToString:@"GET"]) {
+        self.cacheHeaders = [NSMutableDictionary dictionary];
+    }
     
-    if ([method isEqualToString:@"GET"])
-      self.cacheHeaders = [NSMutableDictionary dictionary];
-    
-    if (([method isEqualToString:@"GET"] ||
-         [method isEqualToString:@"DELETE"]) && (params && [params count] > 0)) {
-      
+    if (([method isEqualToString:@"GET"] || [method isEqualToString:@"DELETE"]) && (params && [params count] > 0)) {
       finalURL = [NSURL URLWithString:[NSString stringWithFormat:@"%@?%@", aURLString,
                                        [self.fieldsToBePosted urlEncodedKeyValueString]]];
     } else {
       finalURL = [NSURL URLWithString:aURLString];
     }
-    
-    if(finalURL == nil) {
-      
-      DLog(@"Cannot create a URL with %@ and parameters %@ and method %@", aURLString, self.fieldsToBePosted, method);
-      return nil;
+    // Salesforce
+    // {
+    if(self.timeout <= 0) {
+        _timeout = 180; // default to 3 minutesSF
     }
     
     self.request = [NSMutableURLRequest requestWithURL:finalURL
-                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
-                                       timeoutInterval:kMKNetworkKitRequestTimeOutInSeconds];
-    
+                                               cachePolicy:self.cachePolicy
+                                           timeoutInterval:[self timeout]];
+    // }
+//    self.request = [NSMutableURLRequest requestWithURL:finalURL
+//                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+//                                       timeoutInterval:kMKNetworkKitRequestTimeOutInSeconds];
+
     [self.request setHTTPMethod:method];
-    
-    if (([method isEqualToString:@"POST"] ||
+    [self.request setValue:[NSString stringWithFormat:@"%@, en-us",
+                                [[NSLocale preferredLanguages] componentsJoinedByString:@", "]
+                                ] forHTTPHeaderField:@"Accept-Language"];
+      // Salesforce
+      if (([method isEqualToString:@"POST"] || [method isEqualToString:@"PATCH"] ||
+//    if (([method isEqualToString:@"POST"] ||
          [method isEqualToString:@"PUT"]) && (params && [params count] > 0)) {
       
       self.postDataEncoding = MKNKPostDataEncodingTypeURL;
     }
-    
     self.state = MKNetworkOperationStateReady;
   }
   
   return self;
 }
 
+-(void) addHeader:(NSString*)key withValue:(NSString*)value {
+    [self.request addValue:value forHTTPHeaderField:key];
+}
+
 -(void) addParams:(NSDictionary*) paramsDictionary {
-  
   [self.fieldsToBePosted addEntriesFromDictionary:paramsDictionary];
 }
 
 -(void) addHeaders:(NSDictionary*) headersDictionary {
-  
   [headersDictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
     [self.request addValue:obj forHTTPHeaderField:key];
   }];
 }
 
--(void) addHeader:(NSString*)key withValue:(NSString*)value {
-  
-  [self.request addValue:value forHTTPHeaderField:key];
-}
-
--(void) setHeader:(NSString*)key withValue:(NSString*)value {
-  
-  [self.request setValue:value forHTTPHeaderField:key];
-}
-
--(void) setAuthorizationHeaderValue:(NSString*) token forAuthType:(NSString*) authType {
-  
-  [self.request setValue:[NSString stringWithFormat:@"%@ %@", authType, token]
-      forHTTPHeaderField:@"Authorization"];
-}
 /*
  Printing a MKNetworkOperation object is printed in curl syntax
  */
-
 -(NSString*) description {
-  
+  // Salesforce
   NSMutableString *displayString = [NSMutableString stringWithFormat:@"%@\nRequest\n-------\n%@",
                                     [[NSDate date] descriptionWithLocale:[NSLocale currentLocale]],
-                                    [self curlCommandLineString]];
+                                      [self shortDescription]];
+//    NSMutableString *displayString = [NSMutableString stringWithFormat:@"%@\nRequest\n-------\n%@",
+//                                      [[NSDate date] descriptionWithLocale:[NSLocale currentLocale]],
+//                                    [self curlCommandLineString]];
   
   NSString *responseString = [self responseString];
   if([responseString length] > 0) {
@@ -720,8 +829,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   return displayString;
 }
 
--(NSString*) curlCommandLineString
-{
+-(NSString*) curlCommandLineString {
   __block NSMutableString *displayString = [NSMutableString stringWithFormat:@"curl -X %@", self.request.HTTPMethod];
   
   if([self.filesToBePosted count] == 0 && [self.dataToBePosted count] == 0) {
@@ -747,7 +855,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
       [displayString appendFormat:@" -d \'%@\'", [self encodedPostDataString]];
     }
     
-    
     [self.filesToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
       
       NSDictionary *thisFile = (NSDictionary*) obj;
@@ -766,9 +873,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   return displayString;
 }
 
-
 -(void) addData:(NSData*) data forKey:(NSString*) key {
-  
   [self addData:data forKey:key mimeType:@"application/octet-stream" fileName:@"file"];
 }
 
@@ -792,7 +897,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) addFile:(NSString*) filePath forKey:(NSString*) key mimeType:(NSString*) mimeType {
-  
   if ([self.request.HTTPMethod isEqualToString:@"GET"]) {
     [self.request setHTTPMethod:@"POST"];
   }
@@ -805,7 +909,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(NSData*) bodyData {
-  
   if([self.filesToBePosted count] == 0 && [self.dataToBePosted count] == 0) {
     
     return [[self encodedPostDataString] dataUsingEncoding:self.stringEncoding];
@@ -817,9 +920,13 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   
   [self.fieldsToBePosted enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
     
-    NSString *thisFieldString = [NSString stringWithFormat:
-                                 @"--%@\r\nContent-Disposition: form-data; name=\"%@\"\r\n\r\n%@",
-                                 boundary, key, obj];
+  // Salesforce
+  NSString *thisFieldString = [NSString stringWithFormat:
+                                     @"--%@\r\nContent-Disposition: form-data; name=\"%@\"\r\nContent-Type: %@\r\n\r\n%@",
+                                     boundary, key, @"application/x-www-form-urlencoded", obj];
+//        NSString *thisFieldString = [NSString stringWithFormat:
+//                                 @"--%@\r\nContent-Disposition: form-data; name=\"%@\"\r\n\r\n%@",
+//                                 boundary, key, obj];
     
     [body appendData:[thisFieldString dataUsingEncoding:[self stringEncoding]]];
     [body appendData:[@"\r\n" dataUsingEncoding:[self stringEncoding]]];
@@ -843,20 +950,33 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   [self.dataToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
     
     NSDictionary *thisDataObject = (NSDictionary*) obj;
-    NSString *thisFieldString = [NSString stringWithFormat:
+    // Salesforce
+    // {
+        NSString *thisFieldString = nil;
+        if (nil != thisDataObject[@"filename"]) {
+            thisFieldString = [NSString stringWithFormat:
+//         NSString *thisFieldString = [NSString stringWithFormat:
                                  @"--%@\r\nContent-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\nContent-Type: %@\r\nContent-Transfer-Encoding: binary\r\n\r\n",
                                  boundary,
-                                 thisDataObject[@"name"],
-                                 thisDataObject[@"filename"],
-                                 thisDataObject[@"mimetype"]];
-    
+                               thisDataObject[@"name"],
+                               thisDataObject[@"filename"],
+                               thisDataObject[@"mimetype"]];
+
+        } else {
+            thisFieldString = [NSString stringWithFormat:
+                               @"--%@\r\nContent-Disposition: form-data; name=\"%@\"\r\nContent-Type: %@\r\n\r\n",
+                               boundary,
+                               thisDataObject[@"name"],
+                               thisDataObject[@"mimetype"]];
+        }
+    // }
     [body appendData:[thisFieldString dataUsingEncoding:[self stringEncoding]]];
     [body appendData:thisDataObject[@"data"]];
     [body appendData:[@"\r\n" dataUsingEncoding:[self stringEncoding]]];
   }];
   
   if (postLength >= 1)
-    [self.request setValue:[NSString stringWithFormat:@"%lu", (unsigned long) postLength] forHTTPHeaderField:@"Content-Length"];
+    [self.request setValue:[NSString stringWithFormat:@"%lu", (unsigned long)postLength] forHTTPHeaderField:@"content-length"];
   
   [body appendData: [[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:self.stringEncoding]];
   
@@ -872,23 +992,19 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   return body;
 }
 
-
 -(void) setCacheHandler:(MKNKResponseBlock) cacheHandler {
-  
   self.cacheHandlingBlock = cacheHandler;
 }
 
 #pragma mark -
 #pragma Main method
 -(void) main {
-  
   @autoreleasepool {
     [self start];
   }
 }
 
 -(void) endBackgroundTask {
-  
 #if TARGET_OS_IPHONE
   dispatch_async(dispatch_get_main_queue(), ^{
     if (self.backgroundTaskId != UIBackgroundTaskInvalid) {
@@ -901,6 +1017,18 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 
 - (void) start
 {
+    // Salesforce: support local data reading
+    // {
+    if (self.readFromLocalData) {
+        if (self.mutableData) {
+            [self operationSucceeded];
+        }
+        else {
+            [self operationFailedWithError:[NSError errorWithDomain:NSURLErrorDomain code:404 userInfo:nil]];
+        }
+        return;
+    }
+    // }
   
 #if TARGET_OS_IPHONE
   self.backgroundTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
@@ -918,11 +1046,13 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 #endif
   
   if(!self.isCancelled) {
-    
-    if (([self.request.HTTPMethod isEqualToString:@"POST"] ||
-         [self.request.HTTPMethod isEqualToString:@"PUT"] ||
-         [self.request.HTTPMethod isEqualToString:@"PATCH"]) && !self.request.HTTPBodyStream) {
-      
+    // Salesforce
+    // {
+    if ([self.request.HTTPMethod isEqualToString:@"GET"]) {
+      [self.request setHTTPShouldUsePipelining:self.enableHttpPipelining];
+    }
+    // }
+    if (([self.request.HTTPMethod isEqualToString:@"POST"] || [self.request.HTTPMethod isEqualToString:@"PUT"] || [self.request.HTTPMethod isEqualToString:@"PATCH"]) && !self.request.HTTPBodyStream) {
       [self.request setHTTPBody:[self bodyData]];
     }
     
@@ -954,22 +1084,30 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 - (BOOL)isReady {
-  
   return (self.state == MKNetworkOperationStateReady && [super isReady]);
 }
 
 - (BOOL)isFinished
 {
+  // Salesforce
+  if (self.isCancelled) {
+    return YES;
+  }
+  // }
   return (self.state == MKNetworkOperationStateFinished);
 }
 
 - (BOOL)isExecuting {
-  
   return (self.state == MKNetworkOperationStateExecuting);
 }
 
 -(void) cancel {
-  
+  // Salesforce
+  // {
+    @autoreleasepool {
+        self.request.HTTPBody = nil;
+    }
+  // }
   if([self isFinished])
     return;
   
@@ -977,7 +1115,8 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
     self.isCancelled = YES;
     
     [self.connection cancel];
-    
+    // Salesforce
+    [self clearRequestData];
     [self.responseBlocks removeAllObjects];
     self.responseBlocks = nil;
     
@@ -1008,9 +1147,20 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
     
     self.cacheHandlingBlock = nil;
     
-    if(self.state == MKNetworkOperationStateExecuting)
+    // Salesforce
+    self.downloadFile = nil;
+    _cipher = nil;
+    if (nil != self.downloadFile) {
+      NSFileManager *fileManager = [NSFileManager defaultManager];
+      if ([fileManager fileExistsAtPath:self.downloadFile]) {
+        [fileManager removeItemAtPath:self.downloadFile error:nil];
+      }
+    }
+    // }
+    if(self.state == MKNetworkOperationStateExecuting) {
       self.state = MKNetworkOperationStateFinished; // This notifies the queue and removes the operation.
     // if the operation is not removed, the spinner continues to spin, not a good UX
+    }
     
     [self endBackgroundTask];
   }
@@ -1021,13 +1171,21 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 #pragma mark NSURLConnection delegates
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
-  
   self.state = MKNetworkOperationStateFinished;
   self.mutableData = nil;
   self.downloadedDataSize = 0;
   for(NSOutputStream *stream in self.downloadStreams)
     [stream close];
-  
+
+    // Salesforce
+    // {
+    if (nil != self.downloadFile) {
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if ([fileManager fileExistsAtPath:self.downloadFile]) {
+            [fileManager removeItemAtPath:self.downloadFile error:nil];
+        }
+    }
+    // }
   [self operationFailedWithError:error];
   [self endBackgroundTask];
 }
@@ -1083,7 +1241,6 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
 }
 
 - (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge {
-  
   if (challenge.previousFailureCount == 0) {
     
     if (((challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodDefault) ||
@@ -1187,87 +1344,102 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-  
-  NSUInteger size = [self.response expectedContentLength] < 0 ? 0 : (NSUInteger)[self.response expectedContentLength];
+  // Salesforce: added by Sachin Desai to handle a case where server does not return content length but
+  // the length is known beforehand.
+  // {
   self.response = (NSHTTPURLResponse*) response;
+  const long long sz = [self contentLength];
+  NSUInteger size = sz < 0 ? 0 : sz;
+  // }
+//    NSUInteger size = [self.response expectedContentLength] < 0 ? 0 : [self.response expectedContentLength];
   
-  // dont' save data if the operation was created to download directly to a stream.
-  if([self.downloadStreams count] == 0)
-    self.mutableData = [NSMutableData dataWithCapacity:size];
-  else
-    self.mutableData = nil;
-  
-  for(NSOutputStream *stream in self.downloadStreams)
-    [stream open];
-  
-  NSDictionary *httpHeaders = [self.response allHeaderFields];
-  
-  // if you attach a stream to the operation, MKNetworkKit will not cache the response.
-  // Streams are usually "big data chunks" that doesn't need caching anyways.
-  
-  if([self.request.HTTPMethod isEqualToString:@"GET"] && [self.downloadStreams count] == 0) {
-    
-    // We have all this complicated cache handling since NSURLRequestReloadRevalidatingCacheData is not implemented
-    // do cache processing only if the request is a "GET" method
-    NSString *lastModified = httpHeaders[@"Last-Modified"];
-    NSString *eTag = httpHeaders[@"ETag"];
-    NSString *expiresOn = httpHeaders[@"Expires"];
-    
-    NSString *contentType = httpHeaders[@"Content-Type"];
-    // if contentType is image,
-    
-    NSDate *expiresOnDate = nil;
-    
-    if([contentType rangeOfString:@"image"].location != NSNotFound) {
-      
-      // For images let's assume a expiry date of 7 days if there is no eTag or Last Modified.
-      if(!eTag && !lastModified)
-        expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageCacheDuration];
-      else
-        expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageHeadRequestDuration];
-    }
-    
-    NSString *cacheControl = httpHeaders[@"Cache-Control"]; // max-age, must-revalidate, no-cache
-    NSArray *cacheControlEntities = [cacheControl componentsSeparatedByString:@","];
-    
-    for(NSString *substring in cacheControlEntities) {
-      
-      if([substring rangeOfString:@"max-age"].location != NSNotFound) {
-        
-        // do some processing to calculate expiresOn
-        NSString *maxAge = nil;
-        NSArray *array = [substring componentsSeparatedByString:@"="];
-        if([array count] > 1)
-          maxAge = array[1];
-        
-        expiresOnDate = [[NSDate date] dateByAddingTimeInterval:[maxAge intValue]];
-      }
-      if([substring rangeOfString:@"no-cache"].location != NSNotFound) {
-        
-        // Don't cache this request
-        expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultCacheDuration];
-      }
-    }
-    
-    // if there was a cacheControl entity, we would have a expiresOnDate that is not nil.
-    // "Cache-Control" headers take precedence over "Expires" headers
-    
-    if(expiresOnDate)
-      expiresOn = [expiresOnDate rfc1123String];
-    
-    // now remember lastModified, eTag and expires for this request in cache
-    if(expiresOn)
-      (self.cacheHeaders)[@"Expires"] = expiresOn;
-    if(lastModified)
-      (self.cacheHeaders)[@"Last-Modified"] = lastModified;
-    if(eTag)
-      (self.cacheHeaders)[@"ETag"] = eTag;
+  // Salesforce: dont' save data if the operation was created to download directly to a stream.
+  BOOL needsToCreateMutableData = YES;
+  if ([self.downloadStreams count] > 0) {
+    needsToCreateMutableData = NO;
+  } else if (self.downloadFile != nil && self.encryptDownload) {
+    needsToCreateMutableData = NO;
   }
+    
+  if(needsToCreateMutableData) {
+    self.mutableData = [NSMutableData dataWithCapacity:size];
+  } else {
+    self.mutableData = nil;
+  }
+
+  // Salesforce: only open stream when status code is 200, otherwise we will save error text or JSON response returned
+  // into download stream
+  if (self.response.statusCode == 200) {
+        for(NSOutputStream *stream in self.downloadStreams)
+            [stream open];
+  
+        NSDictionary *httpHeaders = [self.response allHeaderFields];
+  
+        // if you attach a stream to the operation, MKNetworkKit will not cache the response.
+        // Streams are usually "big data chunks" that doesn't need caching anyways.
+  
+        if([self.request.HTTPMethod isEqualToString:@"GET"] && [self.downloadStreams count] == 0) {
+            // We have all this complicated cache handling since NSURLRequestReloadRevalidatingCacheData is not implemented
+            // do cache processing only if the request is a "GET" method
+            NSString *lastModified = httpHeaders[@"Last-Modified"];
+            NSString *eTag = httpHeaders[@"ETag"];
+            NSString *expiresOn = httpHeaders[@"Expires"];
+    
+            NSString *contentType = httpHeaders[@"Content-Type"];
+            // if contentType is image,
+    
+            NSDate *expiresOnDate = nil;
+            if([contentType rangeOfString:@"image"].location != NSNotFound) {
+      
+                // For images let's assume a expiry date of 7 days if there is no eTag or Last Modified.
+                if(!eTag && !lastModified)
+                    expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageCacheDuration];
+                else
+                    expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageHeadRequestDuration];
+            }
+    
+            NSString *cacheControl = httpHeaders[@"Cache-Control"]; // max-age, must-revalidate, no-cache
+            NSArray *cacheControlEntities = [cacheControl componentsSeparatedByString:@","];
+    
+            for(NSString *substring in cacheControlEntities) {
+                if([substring rangeOfString:@"max-age"].location != NSNotFound) {
+        
+                    // do some processing to calculate expiresOn
+                    NSString *maxAge = nil;
+                    NSArray *array = [substring componentsSeparatedByString:@"="];
+                    if([array count] > 1)
+                        maxAge = array[1];
+        
+                    expiresOnDate = [[NSDate date] dateByAddingTimeInterval:[maxAge intValue]];
+                }
+                if([substring rangeOfString:@"no-cache"].location != NSNotFound) {
+        
+                    // Don't cache this request
+                    expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultCacheDuration];
+                }
+            }
+    
+            // if there was a cacheControl entity, we would have a expiresOnDate that is not nil.
+            // "Cache-Control" headers take precedence over "Expires" headers
+    
+            if(expiresOnDate)
+                expiresOn = [expiresOnDate rfc1123String];
+    
+            // now remember lastModified, eTag and expires for this request in cache
+            if(expiresOn)
+                (self.cacheHeaders)[@"Expires"] = expiresOn;
+            if(lastModified)
+                (self.cacheHeaders)[@"Last-Modified"] = lastModified;
+            if(eTag)
+                (self.cacheHeaders)[@"ETag"] = eTag;
+        }
+    }
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-  
-  if (self.downloadedDataSize == 0) {
+    // Customization by Salesforce
+    if (nil == self.mutableData || (self.mutableData && [self.mutableData length] == 0) || [self.downloadStreams count] > 0) {
+//  if (self.downloadedDataSize == 0) {
     // This is the first batch of data
     // Check for a range header and make changes as neccesary
     NSString *rangeString = [[self request] valueForHTTPHeaderField:@"Range"];
@@ -1279,35 +1451,67 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
     }
   }
   
-  if([self.downloadStreams count] == 0)
+  // Salesforce: added by Qingqing to support download file
+  // {
+  if(nil != self.mutableData) {
     [self.mutableData appendData:data];
+  }
+  // }
+//    if([self.downloadStreams count] == 0) {
+//        [self.mutableData appendData:data];
+//    }
+
   
   for(NSOutputStream *stream in self.downloadStreams) {
-    
     if ([stream hasSpaceAvailable]) {
       const uint8_t *dataBuffer = [data bytes];
       [stream write:&dataBuffer[0] maxLength:[data length]];
     }
   }
   
-  self.downloadedDataSize += [data length];
-  
-  for(MKNKProgressBlock downloadProgressBlock in self.downloadProgressChangedHandlers) {
-    
-    if([self.response expectedContentLength] > 0) {
-      
-      double progress = (double)(self.downloadedDataSize) / (double)(self.startPosition + [self.response expectedContentLength]);
-      downloadProgressBlock(progress);
+    if (self.isCancelled) {
+        // If canceled, do not call back
+        return;
     }
-  }
+    
+    // Salesforce customization
+    if (self.response.statusCode == 200) {
+        if (nil != self.downloadFile) {
+            if (self.encryptDownload) {
+                [[self cipher] cryptData:data];
+            } else if (nil != self.mutableData) {
+                [self.mutableData appendData:data];
+            }
+        }
+
+        self.downloadedDataSize += [data length];
+  
+        for(MKNKProgressBlock downloadProgressBlock in self.downloadProgressChangedHandlers) {
+            // Salesforce
+            const long long sz = [self contentLength];
+            if (sz > 0) {
+                double progress = (double)(self.downloadedDataSize) / (double)(self.startPosition + sz);
+                downloadProgressBlock(progress);
+            }
+        }
+    }
+}
+
+- (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse {
+    return NO;
 }
 
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten
  totalBytesWritten:(NSInteger)totalBytesWritten
 totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
-  
+  // Salesforce
+  // {
+  if (self.isCancelled) {
+      // do nothing if canceled
+      return;
+  }
+  // }
   for(MKNKProgressBlock uploadProgressBlock in self.uploadProgressChangedHandlers) {
-    
     if(totalBytesExpectedToWrite > 0) {
       uploadProgressBlock(((double)totalBytesWritten/(double)totalBytesExpectedToWrite));
     }
@@ -1345,14 +1549,28 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
     return;
   
   self.state = MKNetworkOperationStateFinished;
-  
-  for(NSOutputStream *stream in self.downloadStreams)
+  // Salesforce
+  [self clearRequestData];
+  for(NSOutputStream *stream in self.downloadStreams) {
     [stream close];
+  }
+
+// Salesforce
+// {
+  if (self.response.statusCode == 200) {
+    if (nil != self.downloadFile) {
+      if (self.encryptDownload) {
+        [[self cipher] finalizeCipher];
+      }
+      else if (nil != self.mutableData) {
+        [[self mutableData] writeToFile:self.downloadFile atomically:YES];
+      }
+    }
+  }
+  // }
   
   if (self.response.statusCode >= 200 && self.response.statusCode < 300 && ![self isCancelled]) {
-    
     self.cachedResponse = nil; // remove cached data
-
     [self notifyCache];
     [self operationSucceeded];
     
@@ -1367,7 +1585,12 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
       for(MKNKVoidBlock notModifiedBlock in self.notModifiedHandlers) {
         
         notModifiedBlock();
-      }
+	  }
+      DLog(@"%@ not modified", self.url);
+      // Salesforce
+      [self operationFailedWithError:[NSError errorWithDomain:NSURLErrorDomain
+                                                               code:self.response.statusCode
+                                                     userInfo:self.response.allHeaderFields]];
     }
     else if(self.response.statusCode == 307) {
       DLog(@"%@ temporarily redirected", self.url);
@@ -1390,7 +1613,6 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 #pragma mark Our methods to get data
 
 -(NSData*) responseData {
-  
   if([self isFinished])
     return self.mutableData;
   else if(self.cachedResponse)
@@ -1400,23 +1622,31 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 }
 
 -(NSString*)responseString {
-  
   return [self responseStringWithEncoding:self.stringEncoding];
 }
 
 -(NSString*) responseStringWithEncoding:(NSStringEncoding) encoding {
-  
+  // Salesforce
+  // {
+  if (nil == [self responseData]) {
+        return nil;
+    }
+  // }
   return [[NSString alloc] initWithData:[self responseData] encoding:encoding];
 }
 
 #if TARGET_OS_IPHONE
 -(UIImage*) responseImage {
-  
+  // Salesforce
+  // {
+  if (nil == [self responseData]) {
+    return nil;
+  }
+  // }
   return [UIImage imageWithData:[self responseData]];
 }
 
 -(void) decompressedResponseImageOfSize:(CGSize) size completionHandler:(void (^)(UIImage *decompressedImage)) imageDecompressionHandler {
-  
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
 
     CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)([self responseData]), NULL);
@@ -1435,18 +1665,25 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 
 #elif TARGET_OS_MAC
 -(NSImage*) responseImage {
-  
+  // Salesforce
+  if (nil == [self responseData]) {
+    return nil;
+  }
+  // }
   return [[NSImage alloc] initWithData:[self responseData]];
 }
 
 -(NSXMLDocument*) responseXML {
-  
+  // Salesforce
+  if (nil == [self responseData]) {
+    return nil;
+  }
+  // }
   return [[NSXMLDocument alloc] initWithData:[self responseData] options:0 error:nil];
 }
 #endif
 
 -(id) responseJSON {
-  
   if([self responseData] == nil) return nil;
   NSError *error = nil;
   id returnValue = [NSJSONSerialization JSONObjectWithData:[self responseData] options:0 error:&error];
@@ -1460,7 +1697,6 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 }
 
 -(void) responseJSONWithOptions:(NSJSONReadingOptions) options completionHandler:(void (^)(id jsonObject)) jsonDecompressionHandler {
-  
   if([self responseData] == nil) {
     
     jsonDecompressionHandler(nil);
@@ -1489,9 +1725,20 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 #pragma mark Overridable methods
 
 -(void) operationSucceeded {
+  // Salesforce
+  // {
+  if (self.isCancelled) {
+    // If canceled, do not call back
+    return;
+  }
   
+  self.request.HTTPBody = nil;
+  self.request = nil;
+  // }
   for(MKNKResponseBlock responseBlock in self.responseBlocks)
     responseBlock(self);
+  // Salesforce
+  [self clearRequestData];
 }
 
 -(void) showLocalNotification {
@@ -1513,21 +1760,159 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 }
 
 -(void) operationFailedWithError:(NSError*) error {
-  
   self.error = error;
-  DLog(@"%@, [%@]", self, [self.error localizedDescription]);
-  for(MKNKErrorBlock errorBlock in self.errorBlocks)
-    errorBlock(error);
+  // Salesforce
+  if (self.isCancelled) {
+    //If canceled, do not call back
+    return;
+  }
+  BOOL notModified = 304 == error.code;
+  if (!notModified) {
+    DLog(@"%@, [%@]", self, [self.error localizedDescription]);
+  }
+  // }
+//    DLog(@"%@, [%@]", self, [self.error localizedDescription]);
   
   for(MKNKResponseErrorBlock errorBlock in self.errorBlocksType2)
     errorBlock(self, error);
+  // Salesforce
+  [self clearRequestData];
   
 #if TARGET_OS_IPHONE
-  DLog(@"State: %d", [[UIApplication sharedApplication] applicationState]);
+  // Salesforce
+  // {
+  if (!notModified) {
+      DLog(@"State: %d", [[UIApplication sharedApplication] applicationState]);
+  }
+  // }
+//    DLog(@"State: %d", [[UIApplication sharedApplication] applicationState]);
+
   if([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground)
     [self showLocalNotification];
 #endif
   
 }
 
+#pragma mark Salesforce 
+
+///** Added by Salesforce for customization*/
+//-(void) setHeaders:(NSDictionary*) headersDictionary {
+//    [headersDictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+//        [self.request setValue:obj forHTTPHeaderField:key];
+//    }];
+//}
+//
+//- (void)setHeaderValue:(NSString *)value forKey:(NSString *)key {
+//    if (nil == value) {
+//        return;
+//    }
+//    [self.request setValue:value forHTTPHeaderField:key];
+//}
+
+-(void) setHeader:(NSString*)key withValue:(NSString*)value {
+  if (nil == value) {
+    return;
+  }
+  [self.request setValue:value forHTTPHeaderField:key];
+}
+
+-(void) setAuthorizationHeaderValue:(NSString*) token forAuthType:(NSString*) authType {
+  
+  [self.request setValue:[NSString stringWithFormat:@"%@ %@", authType, token]
+      forHTTPHeaderField:@"Authorization"];
+}
+
+-(NSString*) shortDescription {
+    __block NSMutableString *displayString = [NSMutableString stringWithFormat:@"%@", self.request.HTTPMethod];
+     
+    [displayString appendFormat:@" \"%@\"",  self.url];
+     
+    if ([self.request.HTTPMethod isEqualToString:@"POST"] || [self.request.HTTPMethod isEqualToString:@"PUT"] || [self.request.HTTPMethod isEqualToString:@"PATCH"]) {
+         
+         NSString *option = [self.filesToBePosted count] == 0 ? @"-d" : @"-F";
+         if(self.postDataEncoding == MKNKPostDataEncodingTypeURL) {
+             [self.fieldsToBePosted enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+                 
+                 [displayString appendFormat:@" %@ \"%@=%@\"", option, key, obj];
+             }];
+         } else {
+             [displayString appendFormat:@" -d \"%@\"", [self encodedPostDataString]];
+         }
+         
+         
+         [self.filesToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+             
+             NSDictionary *thisFile = (NSDictionary*) obj;
+             [displayString appendFormat:@" -F \"%@=@%@;type=%@\"", [thisFile objectForKey:@"name"],
+              [thisFile objectForKey:@"filepath"], [thisFile objectForKey:@"mimetype"]];
+         }];
+         
+         // Modified by Salesforce - We currently log the operation so we can see URL's and data that is flowing to the server.
+         // However, when an image or file is posted the bytes printed is way to much.
+         // https://gus.salesforce.com/a07B0000000UwZzIAK
+         [self.dataToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+             [displayString appendString:@"\n --data-posted \"{\n"];
+             if ([obj isKindOfClass:[NSDictionary class]]) {
+                 NSDictionary *dictionary = (NSDictionary*)obj;
+                 
+                 [dictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+                     BOOL didTruncate = NO;
+                     id objectToPrint = obj;
+                     if ([@"data" isEqualToString:key] && [obj isKindOfClass:[NSData class]]) {
+                         NSData *data = (NSData*)obj;
+                         NSUInteger length = [data length];
+                         if (length > MKNetworkKitDataTruncation) {
+                             didTruncate = YES;
+                             objectToPrint = [NSData dataWithBytes:[data bytes] length:MKNetworkKitDataTruncation];
+                         }
+                     }
+                     [displayString appendFormat:@"\t \"%@\" = \"%@%@\"\n", key, objectToPrint, didTruncate?@"...(truncated)":@""];
+                 }];
+             }
+             [displayString appendString:@" }\""];
+         }];
+     }
+     
+     return displayString;
+}
+         
+- (long long) contentLength {
+    return (self.expectedContentSize > 0) ? self.expectedContentSize : [self.response expectedContentLength ];
+}
+        
+#pragma mark - Added to Support Data Encryption
+// Added by Salesforce to support inline data encryption when data is downloaded
+- (SFCrypto *)cipher {
+    if (nil == self.downloadFile) {
+        return nil;
+    }
+    if (!_cipher) {
+        _cipher = [[SFCrypto alloc] initWithOperation:kCCEncrypt key:nil mode:SFCryptoModeDisk];
+        _cipher.file = self.downloadFile;
+    }
+    return _cipher;
+}
+
+- (void)clearRequestData {
+    if (self.request) {
+        self.request.HTTPBody = nil;
+    }
+}
+
+#pragma mark - Added to suppot local testing
+// Added by Salesforce
+-(void)setLocalTestData:(NSData*)localData {
+    self.readFromLocalData = YES;
+    if (localData) {
+        self.mutableData = [NSMutableData data];
+        [self.mutableData appendData:localData];
+    }
+}
+
+- (void)setTimeout:(NSUInteger)timeout {
+    if (self.request) {
+        [self.request setTimeoutInterval:timeout];
+    }
+}
+ 
 @end

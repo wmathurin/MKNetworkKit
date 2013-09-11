@@ -117,7 +117,7 @@
  *  
  */
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                         params:(NSDictionary*) body;
+                         params:(NSMutableDictionary*) body;
 
 /*!
  *  @abstract Creates a simple GET Operation with a request URL, parameters and HTTP Method
@@ -130,7 +130,7 @@
  *  The HTTP Method is implicitly assumed to be GET
  */
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                         params:(NSDictionary*) body
+                         params:(NSMutableDictionary*) body
                    httpMethod:(NSString*)method;
 
 /*!
@@ -146,7 +146,7 @@
  *  The previously mentioned methods operationWithPath: and operationWithPath:params: call this internally
  */
 -(MKNetworkOperation*) operationWithPath:(NSString*) path
-                         params:(NSDictionary*) body
+                         params:(NSMutableDictionary*) body
                    httpMethod:(NSString*)method 
                           ssl:(BOOL) useSSL;
 
@@ -172,7 +172,7 @@
  *  The HTTP method is implicitly assumed to be GET.
  */
 -(MKNetworkOperation*) operationWithURLString:(NSString*) urlString
-                                       params:(NSDictionary*) body;
+                                       params:(NSMutableDictionary*) body;
 
 /*!
  *  @abstract Creates a simple Operation with a request URL, parameters and HTTP Method
@@ -189,7 +189,7 @@
  *  prepareHeaders:
  */
 -(MKNetworkOperation*) operationWithURLString:(NSString*) urlString
-                              params:(NSDictionary*) body
+                              params:(NSMutableDictionary*) body
                         httpMethod:(NSString*) method;
 
 /*!
@@ -311,7 +311,7 @@
  *  This property is readonly cannot be updated. 
  *  You normally initialize an engine with its hostname using the initWithHostName:customHeaders: method
  */
-@property (readonly, copy, nonatomic) NSString *readonlyHostName;
+@property (readonly, strong, nonatomic) NSString *readonlyHostName;
 
 /*!
  *  @abstract Port Number that should be used by URL creating factory methods
@@ -340,7 +340,7 @@
  *	You can use this method to set a custom path to the API location if your server's API path is different from root (/) 
  *  This property is optional
  */
-@property (copy, nonatomic) NSString* apiPath;
+@property (strong, nonatomic) NSString* apiPath;
 
 /*!
  *  @abstract Handler that you implement to monitor reachability changes
@@ -362,7 +362,6 @@
  *  This method is optional. If you don't use, factory methods in MKNetworkEngine creates MKNetworkOperation objects.
  */
 -(void) registerOperationSubclass:(Class) aClass;
-
 /*!
  *  @abstract Cache Directory Name
  *  
@@ -421,5 +420,40 @@
  *	The default value is YES. MKNetworkKit will generate an Accept-Language header using [NSLocale preferredLanguages] + "en-US".
  */
 @property (nonatomic, assign) BOOL shouldSendAcceptLanguageHeader;
+
+#pragma mark Salesforce ↘
+
+/** Update custom headers 
+ *  
+ *   Added by Q. Liu to support udpate of access token
+ *   @param headers New custom headers
+ */
+-(void) updateCustomHeaders:(NSDictionary *)headers;
+
+/*!
+ * Suspend all operations
+ *
+ *   Added by Salesforce to suspend all operations
+ *
+ */
+- (void)suspendAllOperations;
+
+/*!
+ * Resume all operations
+ *
+ *   Added by Salesforce to resume all operations
+ *
+ */
+- (void)resumeAllOperations;
+
+/*!
+ * Returns all operations
+ *
+ *   Added by Salesforce to resume all operations
+ *
+ */
+- (NSArray *)operations;
+
+#pragma mark Salesforce ↖
 
 @end
