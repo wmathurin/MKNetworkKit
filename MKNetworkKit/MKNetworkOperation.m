@@ -24,7 +24,7 @@
 //  THE SOFTWARE.
 
 #import "MKNetworkKit.h"
-#import "SFCrypto.h"
+#import <SalesforceCommonUtils/SFCrypto.h>
 
 #import <ImageIO/ImageIO.h>
 // Always define as it includes Salesforce specific changes
